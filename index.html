@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RV Learn</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RV Learn">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: topic list (sidebar on desktop, home screen on phone); a topic opens straight into one full-height study card with the answer buttons in thumb reach. */
+:root{
+  --bg:#f5f6f9; --surface:#ffffff; --ink:#141b2d; --muted:#6a7389; --line:#e1e5ee;
+  --accent:#2f43c4; --accent-ink:#ffffff; --accent-soft:#e8ebfb;
+  --good:#1c7c4a; --good-soft:#e0f3e8; --bad:#b3261e; --bad-soft:#fbe6e4;
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1220; --surface:#171c2d; --ink:#eaedf6; --muted:#939cb4; --line:#272e45;
+    --accent:#8c9bff; --accent-ink:#0e1220; --accent-soft:#222949;
+    --good:#6fd39a; --good-soft:#163225; --bad:#ff8a80; --bad-soft:#3b1d1b;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1220; --surface:#171c2d; --ink:#eaedf6; --muted:#939cb4; --line:#272e45;
+  --accent:#8c9bff; --accent-ink:#0e1220; --accent-soft:#222949;
+  --good:#6fd39a; --good-soft:#163225; --bad:#ff8a80; --bad-soft:#3b1d1b;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.4;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+button,input,textarea{font:inherit;color:inherit;touch-action:manipulation}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{display:grid;grid-template-columns:220px 1fr;height:100%}
+.side{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:16px;padding:calc(20px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));overflow-y:auto}
+.brand{font-family:var(--display);font-weight:700;font-size:20px;padding:0 10px;letter-spacing:-.01em}
+.topics{display:flex;flex-direction:column;gap:2px}
+.topic{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:48px;text-align:left;border:0;background:transparent;padding:10px;border-radius:10px;cursor:pointer;font-weight:500}
+.topic:hover{background:var(--bg)}
+.topic[aria-current="true"]{background:var(--accent-soft);color:var(--accent)}
+.topic span:first-child{overflow-wrap:anywhere}
+.due{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.addtopic{display:flex;gap:6px;margin-top:auto}
+.main{min-width:0;height:100%;overflow:hidden}
+.learn{height:100%;display:flex;flex-direction:column;max-width:640px;margin:0 auto;padding:calc(10px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom))}
+.bar{display:flex;align-items:center;gap:8px;min-height:44px}
+.bar .name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .stat{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.icon{border:0;background:transparent;min-width:44px;min-height:44px;border-radius:10px;cursor:pointer;color:var(--muted);font-size:22px;line-height:1}
+.icon:hover{color:var(--ink)}
+.back{display:none}
+.stage{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:20px;text-align:center;padding:12px 4px;border:0;background:transparent;width:100%;cursor:pointer}
+.stage.static{cursor:default}
+.prompt{font-family:var(--display);font-weight:500;font-size:30px;line-height:1.15;letter-spacing:-.01em;text-wrap:balance;overflow-wrap:anywhere}
+.prompt.big{font-size:40px;font-weight:700}
+.answer{font-size:20px;font-weight:600;color:var(--good);overflow-wrap:anywhere}
+.hint{font-size:14px;color:var(--muted)}
+.options{display:flex;flex-direction:column;gap:10px;width:100%}
+.opt{min-height:54px;border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:12px 16px;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.opt:disabled{cursor:default;opacity:1}
+.opt.right{border-color:var(--good);background:var(--good-soft);color:var(--good);font-weight:600}
+.opt.wrong{border-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:12px}
+.actions.one{grid-template-columns:1fr}
+.big{min-height:58px;border-radius:16px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:17px;cursor:pointer}
+.big.yes{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.manage{height:100%;overflow-y:auto;padding:calc(10px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom))}
+.manage .in{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.btn{border:1px solid var(--line);background:var(--surface);min-height:44px;padding:8px 14px;border-radius:10px;cursor:pointer;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--muted);padding:6px 8px}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:default}
+input[type=text],textarea{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0;min-height:44px;font-size:16px}
+textarea{resize:vertical;min-height:72px}
+.form{display:flex;flex-direction:column;gap:8px}
+.note{font-size:13px;color:var(--muted)}
+.list{display:flex;flex-direction:column}
+.card{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.card .txt{flex:1;min-width:0}
+.card .q{font-weight:500;overflow-wrap:anywhere}
+.card .a{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.card.edit{flex-direction:column;align-items:stretch}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.empty{padding:40px 16px;text-align:center;color:var(--muted)}
+.banner{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:8px 12px;font-size:13px;margin:8px 16px 0}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:12px;display:flex;gap:12px;align-items:center;font-size:14px;max-width:calc(100% - 32px);z-index:5}
+.toast button{background:transparent;border:0;color:inherit;text-decoration:underline;cursor:pointer;font-weight:600}
+details summary{cursor:pointer;color:var(--muted);font-size:14px;min-height:32px}
+[hidden]{display:none!important}
+body.locked .app{display:none}
+.login{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px}
+.login .brand{font-size:30px}
+.login .big,.login form{width:100%;max-width:300px}
+.login form{display:flex;flex-direction:column;gap:10px}
+.login input{min-height:54px;border-radius:14px;text-align:center;background:var(--surface);border:1px solid var(--line);font-size:18px;padding:10px}
+.lock{align-self:flex-start}
+@media (max-width:720px){
+  .app{grid-template-columns:1fr}
+  .side{border-right:0;padding-left:16px;padding-right:16px}
+  .brand{font-size:26px;padding:6px 6px 0}
+  .topic{min-height:60px;font-size:19px;padding:12px;border-bottom:1px solid var(--line);border-radius:0}
+  .topic[aria-current="true"]{background:transparent;color:inherit}
+  body.home .main{display:none}
+  body:not(.home) .side{display:none}
+  .back{display:inline-block}
+  .prompt{font-size:27px}
+  .prompt.big{font-size:36px}
+}
+</style>
+</head>
+<body class="home locked">
+<div class="login" id="login" hidden>
+  <div class="brand">RV Learn</div>
+  <button class="big yes" id="whoBtn" type="button">Rahul</button>
+  <form id="passForm" hidden>
+    <input type="password" id="pass" placeholder="Passcode" aria-label="Passcode" autocomplete="current-password">
+    <button class="big yes" type="submit" id="enterBtn">Enter</button>
+  </form>
+  <div class="note" id="loginMsg" role="alert"></div>
+</div>
+<div class="app">
+  <nav class="side" aria-label="Topics">
+    <div class="brand">RV Learn</div>
+    <div class="topics" id="topics"></div>
+    <form class="addtopic" id="addTopicForm">
+      <input type="text" id="newTopic" placeholder="New topic" aria-label="New topic name" maxlength="60">
+      <button class="btn" type="submit">Add</button>
+    </form>
+    <button class="btn quiet lock" type="button" id="lockBtn">Lock</button>
+  </nav>
+  <main class="main" id="main"></main>
+</div>
+<div id="toastHost"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="seed.js"></script>
+<script>
+(function(){
+"use strict";
+var DAY=864e5, INTERVALS=[0,1,3,7,21,60];
+var SB_URL="https://rfjztjhdbasdgdtzlrvj.supabase.co", SB_KEY="sb_publishable_BWlvbLpFwsqurz5fo8XB4A_shw1c91h", OWNER="rahul@rvlearn.vibgen.com";
+var sb=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SB_URL,SB_KEY):null;
+var topics=[], status="loading", sample=null;
+var currentId=(location.hash||"").slice(1)||null;
+var view="learn", sess=null;
+var draft={q:"",a:"",focus:""}, editing=null, confirmDelete=false, genBusy=false, genMsg="", focusNext=null;
+var writeChain={};
+if(currentId)document.body.classList.remove("home");
+
+function h(tag,attrs){
+  var el=document.createElement(tag),i,k;
+  if(attrs)for(k in attrs){
+    if(k==="text")el.textContent=attrs[k];
+    else if(k.slice(0,2)==="on")el.addEventListener(k.slice(2),attrs[k]);
+    else if(attrs[k]===true)el.setAttribute(k,"");
+    else if(attrs[k]!==false&&attrs[k]!=null)el.setAttribute(k,attrs[k]);
+  }
+  for(i=2;i<arguments.length;i++){var c=arguments[i];if(c==null||c===false)continue;el.appendChild(typeof c==="string"?document.createTextNode(c):c);}
+  return el;
+}
+function uid(p){return p+"-"+Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-3);}
+function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),x=a[i];a[i]=a[j];a[j]=x;}return a;}
+function cur(){for(var i=0;i<topics.length;i++)if(topics[i].id===currentId)return topics[i];return null;}
+function cards(t){return Array.isArray(t.cards)?t.cards:[];}
+function findCard(t,id){var l=cards(t);for(var i=0;i<l.length;i++)if(l[i].id===id)return l[i];return null;}
+function dueCards(t){var now=Date.now();return cards(t).filter(function(c){return (c.due||0)<=now;});}
+
+function toast(msg,actionLabel,action){
+  var host=document.getElementById("toastHost");host.textContent="";
+  var t=h("div",{class:"toast",role:"status"},h("span",{text:msg}));
+  if(actionLabel)t.appendChild(h("button",{type:"button",text:actionLabel,onclick:function(){host.textContent="";action();}}));
+  host.appendChild(t);
+  setTimeout(function(){if(t.parentNode)host.textContent="";},6000);
+}
+
+/* ---------- saving ---------- */
+function save(t){
+  if(!sb)return;
+  var row={id:t.id,name:t.name,ord:t.order||0,mode:t.mode||"mix",notes:t.notes||"",cards:JSON.parse(JSON.stringify(cards(t))),updated_at:new Date().toISOString()};
+  var prev=writeChain[t.id]||Promise.resolve();
+  writeChain[t.id]=prev.then(function(){return sb.from("topics").upsert(row);}).then(function(r){if(r&&r.error)throw r.error;}).catch(function(){
+    toast("That change could not be saved. Check your connection and try again.");
+  });
+}
+function removeTopic(t){
+  topics=topics.filter(function(x){return x.id!==t.id;});
+  if(sb){var prev=writeChain[t.id]||Promise.resolve();writeChain[t.id]=prev.then(function(){return sb.from("topics").delete().eq("id",t.id);}).then(function(r){if(r&&r.error)throw r.error;}).catch(function(){toast("The topic could not be deleted. Try again.");});}
+  currentId=null;confirmDelete=false;goHome();
+}
+function setHash(){try{if(currentId)location.hash=currentId;}catch(e){}}
+
+/* ---------- navigation ---------- */
+function selectTopic(id){currentId=id;view="learn";sess=null;editing=null;confirmDelete=false;genMsg="";draft={q:"",a:"",focus:""};document.body.classList.remove("home");setHash();render();}
+function goHome(){document.body.classList.add("home");view="learn";sess=null;render();}
+function addTopic(name){
+  name=name.trim();if(!name)return;
+  var maxOrder=topics.reduce(function(m,t){return Math.max(m,t.order||0);},0);
+  var t={id:uid("t"),name:name,order:maxOrder+1,mode:"mix",notes:"",cards:[]};
+  topics.push(t);save(t);currentId=t.id;view="manage";sess=null;document.body.classList.remove("home");setHash();render();
+}
+
+/* ---------- study session ---------- */
+function buildOptions(t,card){
+  var wrong=[],seen={};seen[card.a.toLowerCase()]=1;
+  function add(x){if(typeof x!=="string")return;x=x.trim();var k=x.toLowerCase();if(!x||seen[k])return;seen[k]=1;wrong.push(x);}
+  (Array.isArray(card.opts)?card.opts:[]).forEach(add);
+  if(wrong.length<3)shuffle(cards(t)).forEach(function(c){if(wrong.length<3&&c.id!==card.id)add(c.a);});
+  if(wrong.length<2)return null;
+  return shuffle([card.a].concat(wrong.slice(0,3)));
+}
+function step(t){
+  if(!sess||sess.topicId!==t.id)sess={topicId:t.id,queue:[],cur:null,extra:false};
+  if(sess.cur&&findCard(t,sess.cur.id))return findCard(t,sess.cur.id);
+  sess.cur=null;
+  while(sess.queue.length&&!findCard(t,sess.queue[0]))sess.queue.shift();
+  if(!sess.queue.length){
+    var due=dueCards(t);
+    if(due.length){sess.queue=shuffle(due).map(function(c){return c.id;});sess.extra=false;}
+    else{sess.queue=shuffle(cards(t)).map(function(c){return c.id;});sess.extra=true;}
+  }
+  if(!sess.queue.length)return null;
+  var card=findCard(t,sess.queue[0]),mode=t.mode||"mix",format="flash",options=null;
+  if(mode==="know")format="know";
+  else if(mode==="mcq"||(mode==="mix"&&(card.n||0)%2===0)){options=buildOptions(t,card);if(options)format="mcq";}
+  sess.cur={id:card.id,format:format,options:options,chosen:null,revealed:false};
+  return card;
+}
+function grade(ok){
+  var t=cur();if(!t||!sess||!sess.cur)return;var id=sess.cur.id;
+  t.cards=cards(t).map(function(c){
+    if(c.id!==id)return c;var n=Object.assign({},c);n.n=(n.n||0)+1;
+    if(ok){n.box=Math.min((n.box||0)+1,INTERVALS.length-1);n.due=Date.now()+INTERVALS[n.box]*DAY;}
+    else{n.box=0;n.due=Date.now();}
+    return n;
+  });
+  sess.queue.shift();if(!ok)sess.queue.push(id);
+  sess.cur=null;save(t);render();
+}
+function reveal(){if(sess&&sess.cur&&!sess.cur.revealed){sess.cur.revealed=true;render();}}
+function choose(opt){if(sess&&sess.cur&&sess.cur.chosen==null){sess.cur.chosen=opt;render();}}
+
+/* ---------- card management ---------- */
+function addCard(){
+  var t=cur();if(!t)return;var q=draft.q.trim(),a=draft.a.trim();
+  if(!q||!a){toast("Enter both a question and an answer.");return;}
+  t.cards=cards(t).concat([{id:uid("c"),q:q,a:a,box:0,due:Date.now(),n:0}]);
+  draft.q="";draft.a="";focusNext="q";save(t);render();
+}
+function deleteCard(id){
+  var t=cur();if(!t)return;var list=cards(t),idx=-1,i;
+  for(i=0;i<list.length;i++)if(list[i].id===id)idx=i;
+  if(idx<0)return;var gone=list[idx];
+  t.cards=list.filter(function(c){return c.id!==id;});save(t);render();
+  toast("Card deleted.","Undo",function(){var l=cards(t).slice();l.splice(Math.min(idx,l.length),0,gone);t.cards=l;save(t);render();});
+}
+function saveEdit(){
+  var t=cur();if(!t||!editing)return;var q=editing.q.trim(),a=editing.a.trim();
+  if(!q||!a){toast("Enter both a question and an answer.");return;}
+  t.cards=cards(t).map(function(c){return c.id===editing.id?Object.assign({},c,{q:q,a:a}):c;});
+  editing=null;save(t);render();
+}
+function generate(){
+  var t=cur();if(!t||!sample||genBusy)return;
+  genBusy=true;genMsg="Claude is writing cards…";render();
+  var existing=cards(t).slice(-150).map(function(c){return "- "+c.q;}).join("\n");
+  var prompt="You write study flashcards for one learner.\nTopic: "+t.name+"\n"+
+    (t.notes?"Background the learner gave about this topic: "+t.notes+"\n":"")+
+    (draft.focus.trim()?"Focus for this batch: "+draft.focus.trim()+"\n":"")+
+    "Write 10 new cards, most useful first. Each question is short and has one clear answer. Each answer is under 12 words. Give each card 3 wrong answers that are plausible and the same kind and length as the right one. Use only facts you are sure of.\n"+
+    (existing?"Do not repeat these existing questions:\n"+existing+"\n":"")+
+    'Return only a JSON array like [{"q":"...","a":"...","wrong":["...","...","..."]}] with no other text.';
+  sample(prompt,{cache:false}).then(function(res){
+    var text=(res&&res.text)||"",s=text.indexOf("["),e=text.lastIndexOf("]"),arr=[];
+    try{arr=JSON.parse(text.slice(s,e+1));}catch(err){arr=[];}
+    var fresh=(Array.isArray(arr)?arr:[]).filter(function(x){return x&&typeof x.q==="string"&&typeof x.a==="string"&&x.q.trim()&&x.a.trim();})
+      .slice(0,20).map(function(x){
+        var c={id:uid("c"),q:x.q.trim().slice(0,300),a:x.a.trim().slice(0,300),box:0,due:Date.now(),n:0};
+        var w=(Array.isArray(x.wrong)?x.wrong:[]).filter(function(y){return typeof y==="string"&&y.trim();}).slice(0,3).map(function(y){return y.trim().slice(0,300);});
+        if(w.length)c.opts=w;return c;
+      });
+    genBusy=false;
+    if(!fresh.length){genMsg="Claude did not return usable cards. Try again with a more specific focus.";render();return;}
+    t.cards=cards(t).concat(fresh);draft.focus="";genMsg=fresh.length+" cards added. Check them before you rely on them.";save(t);render();
+  }).catch(function(e){
+    genBusy=false;
+    genMsg=e&&e.code==="rate_limited"?"Claude is busy right now. Wait a minute and try again.":e&&e.code==="not_granted"?"Card generation was not allowed for this page.":"Claude could not write cards just now. Try again.";
+    render();
+  });
+}
+
+/* ---------- render ---------- */
+function renderSide(){
+  var host=document.getElementById("topics");host.textContent="";
+  topics.forEach(function(t){
+    var d=dueCards(t).length;
+    host.appendChild(h("button",{class:"topic",type:"button","aria-current":t.id===currentId?"true":null,onclick:function(){selectTopic(t.id);}},
+      h("span",{text:t.name}),d?h("span",{class:"due",title:d+" cards due",text:String(d)}):null));
+  });
+  if(status==="ready"&&!topics.length)host.appendChild(h("div",{class:"note",style:"padding:10px",text:"No topics yet. Add one below."}));
+}
+function renderMain(){
+  var m=document.getElementById("main");m.textContent="";
+  if(status==="local")m.appendChild(h("div",{class:"banner",text:"The app could not load fully. Check your connection and reload the page."}));
+  if(status==="unreachable")m.appendChild(h("div",{class:"banner",text:"Your saved cards can't be reached. Check your connection and reload the page."}));
+  if(status==="loading"){m.appendChild(h("div",{class:"empty",text:"Loading…"}));return;}
+  var t=cur();
+  if(!t){m.appendChild(h("div",{class:"empty",text:topics.length?"Pick a topic.":"Add your first topic."}));return;}
+  if(view==="manage")renderManage(m,t);else renderLearn(m,t);
+}
+function renderLearn(m,t){
+  var card=step(t),due=dueCards(t).length;
+  var wrap=h("div",{class:"learn"});
+  wrap.appendChild(h("div",{class:"bar"},
+    h("button",{class:"icon back",type:"button","aria-label":"All topics",text:"‹",onclick:goHome}),
+    h("div",{class:"name",text:t.name}),
+    h("div",{class:"stat",text:card?(due?due+" due":"Caught up"):""}),
+    h("button",{class:"icon",type:"button","aria-label":"Edit cards in "+t.name,text:"⋯",onclick:function(){view="manage";render();}})));
+  if(!card){
+    wrap.appendChild(h("div",{class:"stage static"},h("div",{class:"hint",text:"No cards in this topic yet."}),
+      h("button",{class:"btn primary",type:"button",text:"Add cards",onclick:function(){view="manage";render();}})));
+    m.appendChild(wrap);return;
+  }
+  var s=sess.cur,focusEl=null;
+  if(s.format==="mcq"){
+    var done=s.chosen!=null,opts=h("div",{class:"options"});
+    s.options.forEach(function(o){
+      var cls="opt"+(done&&o===card.a?" right":"")+(done&&o===s.chosen&&o!==card.a?" wrong":"");
+      opts.appendChild(h("button",{class:cls,type:"button",disabled:done,text:o,onclick:function(){choose(o);}}));
+    });
+    wrap.appendChild(h("div",{class:"stage static"},h("div",{class:"prompt",text:card.q}),opts));
+    if(done){focusEl=h("button",{class:"big yes",type:"button",text:"Next",onclick:function(){grade(s.chosen===card.a);}});wrap.appendChild(h("div",{class:"actions one"},focusEl));}
+  }else{
+    var know=s.format==="know";
+    var stage=h("button",{class:"stage",type:"button","aria-label":s.revealed?"Answer shown":"Show answer",onclick:reveal},
+      h("div",{class:"prompt"+(know?" big":""),text:card.q}),
+      s.revealed?h("div",{class:"answer",text:card.a}):h("div",{class:"hint",text:"Tap to show the answer"}));
+    wrap.appendChild(stage);
+    if(know||s.revealed){
+      focusEl=h("button",{class:"big yes",type:"button",text:know?"Know it":"Got it",onclick:function(){grade(true);}});
+      wrap.appendChild(h("div",{class:"actions"},h("button",{class:"big",type:"button",text:know?"Don't know":"Again",onclick:function(){grade(false);}}),focusEl));
+    }else{
+      focusEl=h("button",{class:"big yes",type:"button",text:"Show answer",onclick:reveal});
+      wrap.appendChild(h("div",{class:"actions one"},focusEl));
+    }
+  }
+  m.appendChild(wrap);
+  if(focusEl&&window.matchMedia&&window.matchMedia("(hover:hover)").matches)focusEl.focus();
+}
+function renderManage(m,t){
+  var list=cards(t);
+  var inner=h("div",{class:"in"});
+  inner.appendChild(h("div",{class:"bar"},
+    h("button",{class:"icon",style:"display:inline-block",type:"button","aria-label":"Back to studying",text:"‹",onclick:function(){view="learn";sess=null;editing=null;render();}}),
+    h("div",{class:"name",text:t.name}),
+    h("div",{class:"stat",text:list.length+(list.length===1?" card":" cards")})));
+
+  var qIn=h("input",{type:"text",id:"cardQ",placeholder:"Question",value:draft.q,maxlength:"300",oninput:function(e){draft.q=e.target.value;}});
+  var aIn=h("input",{type:"text",id:"cardA",placeholder:"Answer",value:draft.a,maxlength:"300",oninput:function(e){draft.a=e.target.value;}});
+  inner.appendChild(h("form",{class:"form",onsubmit:function(e){e.preventDefault();addCard();}},qIn,aIn,h("button",{class:"btn primary",type:"submit",text:"Add card"})));
+  if(sample){
+    var fIn=h("input",{type:"text",id:"genFocus",placeholder:"Optional focus for Claude",value:draft.focus,maxlength:"200",oninput:function(e){draft.focus=e.target.value;}});
+    inner.appendChild(h("form",{class:"form",onsubmit:function(e){e.preventDefault();generate();}},fIn,
+      h("button",{class:"btn",type:"submit",disabled:genBusy,text:genBusy?"Writing…":"Have Claude write 10 cards"}),
+      genMsg?h("div",{class:"note",role:"status",text:genMsg}):null));
+  }
+  var notes=h("textarea",{id:"topicNotes",placeholder:"What this topic covers. Claude reads this when it writes cards.",maxlength:"2000"});
+  notes.value=t.notes||"";
+  notes.addEventListener("change",function(){t.notes=notes.value;save(t);});
+  inner.appendChild(h("details",null,h("summary",{text:"Topic notes"}),notes));
+
+  var box=h("div",{class:"list"});
+  list.forEach(function(c){
+    if(editing&&editing.id===c.id){
+      box.appendChild(h("form",{class:"card edit",onsubmit:function(e){e.preventDefault();saveEdit();}},
+        h("input",{type:"text",id:"editQ",value:editing.q,"aria-label":"Question",maxlength:"300",oninput:function(e){editing.q=e.target.value;}}),
+        h("input",{type:"text",id:"editA",value:editing.a,"aria-label":"Answer",maxlength:"300",oninput:function(e){editing.a=e.target.value;}}),
+        h("div",{class:"row"},h("button",{class:"btn primary",type:"submit",text:"Save"}),
+          h("button",{class:"btn quiet",type:"button",text:"Cancel",onclick:function(){editing=null;render();}}),
+          h("button",{class:"btn quiet danger",type:"button",text:"Delete card",onclick:function(){editing=null;deleteCard(c.id);}}))));
+      return;
+    }
+    box.appendChild(h("div",{class:"card"},
+      h("div",{class:"txt"},h("div",{class:"q",text:c.q}),h("div",{class:"a",text:c.a})),
+      h("button",{class:"btn quiet",type:"button",text:"Edit","aria-label":"Edit card: "+c.q,onclick:function(){editing={id:c.id,q:c.q,a:c.a};focusNext="editQ";render();}})));
+  });
+  inner.appendChild(box);
+  inner.appendChild(h("div",{class:"row"},
+    confirmDelete
+      ?h("span",{class:"row"},h("span",{class:"note",text:"Delete this topic and its "+list.length+" cards?"}),
+          h("button",{class:"btn danger",type:"button",text:"Yes, delete topic",onclick:function(){removeTopic(t);}}),
+          h("button",{class:"btn quiet",type:"button",text:"Keep it",onclick:function(){confirmDelete=false;render();}}))
+      :h("button",{class:"btn quiet danger",type:"button",text:"Delete topic",onclick:function(){confirmDelete=true;render();}})));
+  m.appendChild(h("div",{class:"manage"},inner));
+  if(focusNext==="q")qIn.focus();
+  if(focusNext==="editQ"){var eq=document.getElementById("editQ");if(eq)eq.focus();}
+  focusNext=null;
+}
+function render(){
+  if(!cur()&&topics.length&&!document.body.classList.contains("home"))currentId=topics[0].id;
+  if(!cur()&&topics.length&&window.matchMedia&&window.matchMedia("(min-width:721px)").matches)currentId=topics[0].id;
+  renderSide();renderMain();
+}
+
+document.getElementById("addTopicForm").addEventListener("submit",function(e){
+  e.preventDefault();var i=document.getElementById("newTopic");addTopic(i.value);i.value="";
+});
+document.addEventListener("keydown",function(e){
+  if(view!=="learn"||!sess||!sess.cur||e.metaKey||e.ctrlKey||e.altKey)return;
+  var tag=(e.target&&e.target.tagName)||"";if(tag==="INPUT"||tag==="TEXTAREA")return;
+  var s=sess.cur,t=cur();if(!t)return;var card=findCard(t,s.id);if(!card)return;
+  if(s.format==="mcq"){
+    var n=parseInt(e.key,10);
+    if(s.chosen==null&&n>=1&&n<=s.options.length){e.preventDefault();choose(s.options[n-1]);}
+    return;
+  }
+  if(e.key===" "&&!s.revealed){e.preventDefault();reveal();}
+  else if((s.revealed||s.format==="know")&&e.key==="1"){e.preventDefault();grade(false);}
+  else if((s.revealed||s.format==="know")&&e.key==="2"){e.preventDefault();grade(true);}
+});
+window.addEventListener("hashchange",function(){
+  var id=(location.hash||"").slice(1);
+  if(id&&id!==currentId&&topics.some(function(t){return t.id===id;}))selectTopic(id);
+});
+
+/* ---------- sign-in and loading ---------- */
+function seedTopics(){
+  var S=window.RV_SEED;if(!S)return [];
+  return [
+    {id:"syauctus",name:"Syauctus",order:1,mode:"mix",notes:S.syauctus.notes,cards:S.syauctus.cards.map(function(c,i){return {id:"s"+(i+1),q:c[0],a:c[1],opts:c[2]};})},
+    {id:"world-geography",name:"World geography",order:2,mode:"know",notes:S.geography.notes,cards:S.geography.rows.map(function(r,i){var p=r.split("|");return {id:"g"+(i+1),q:p[0],a:p[1]+" \u00b7 "+p[2]};})}
+  ];
+}
+function loadTopics(){
+  status="loading";render();
+  sb.from("topics").select("*").order("ord").then(function(r){
+    if(r.error){status="unreachable";render();return;}
+    if(!r.data.length){topics=seedTopics();topics.forEach(save);}
+    else topics=r.data.map(function(row){return {id:row.id,name:row.name,order:row.ord,mode:row.mode,notes:row.notes,cards:Array.isArray(row.cards)?row.cards:[]};});
+    status="ready";render();
+  },function(){status="unreachable";render();});
+}
+var loginEl=document.getElementById("login"),passForm=document.getElementById("passForm"),passIn=document.getElementById("pass"),loginMsg=document.getElementById("loginMsg"),whoBtn=document.getElementById("whoBtn");
+function showLogin(msg){document.body.classList.add("locked");loginEl.hidden=false;passForm.hidden=true;whoBtn.hidden=false;passIn.value="";loginMsg.textContent=msg||"";}
+function unlock(){document.body.classList.remove("locked");loginEl.hidden=true;loadTopics();}
+whoBtn.addEventListener("click",function(){whoBtn.hidden=true;passForm.hidden=false;loginMsg.textContent="";passIn.focus();});
+passForm.addEventListener("submit",function(e){
+  e.preventDefault();if(!sb)return;var btn=document.getElementById("enterBtn");btn.disabled=true;loginMsg.textContent="";
+  sb.auth.signInWithPassword({email:OWNER,password:passIn.value}).then(function(r){
+    btn.disabled=false;
+    if(r.error){loginMsg.textContent=/invalid/i.test(r.error.message||"")?"Wrong passcode. Try again.":"Sign-in failed. Check your connection and try again.";passIn.select();return;}
+    unlock();
+  },function(){btn.disabled=false;loginMsg.textContent="Sign-in failed. Check your connection and try again.";});
+});
+document.getElementById("lockBtn").addEventListener("click",function(){
+  if(!sb)return;sb.auth.signOut().then(function(){topics=[];sess=null;showLogin();},function(){topics=[];showLogin();});
+});
+if(!sb){document.body.classList.remove("locked");status="local";render();}
+else sb.auth.getSession().then(function(r){if(r.data&&r.data.session)unlock();else showLogin();},function(){showLogin();});
+})();
+</script>
+</body>
+</html>
