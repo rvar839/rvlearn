@@ -1,6 +1,6 @@
 # RV Learn
 
-Personal study app served at https://rvlearn.vibgen.com (Netlify, auto-deploys from `main`).
+Personal study app served at https://rvlearn.vibgen.com (GitHub Pages, republishes on every push to `main`).
 
 - `index.html`: the whole app (markup, styles, script).
 - `seed.js`: first-run cards, used only when the `topics` table is empty.
