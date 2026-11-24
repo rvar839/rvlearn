@@ -17,6 +17,7 @@
   --accent:#2f43c4; --accent-ink:#ffffff; --accent-soft:#e8ebfb; --accent-mid:#97a2e2;
   --good:#1c7c4a; --good-soft:#e0f3e8; --bad:#b3261e; --bad-soft:#fbe6e4;
   --warn:#d99a1c; --good-mid:#7fcf9f;
+  --sea:#d6e2f5; --land:#fbfaf6; --mapline:#aab3c6;
   --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
   --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
 }
@@ -26,6 +27,7 @@
     --accent:#8c9bff; --accent-ink:#0e1220; --accent-soft:#222949; --accent-mid:#4f5aa8;
     --good:#6fd39a; --good-soft:#163225; --bad:#ff8a80; --bad-soft:#3b1d1b;
     --warn:#f0b849; --good-mid:#2f7a52;
+    --sea:#0d1730; --land:#3b4460; --mapline:#141a2c;
     color-scheme:dark;
   }
 }
@@ -60,7 +62,7 @@ h2{font-size:13px;font-weight:600;margin:0;color:var(--muted);text-transform:upp
 .stage.static{cursor:default}
 .prompt{font-family:var(--display);font-weight:700;font-size:32px;line-height:1.15;letter-spacing:-.01em;text-wrap:balance;overflow-wrap:anywhere}
 .prompt.long{font-weight:500;font-size:25px}
-.map{width:min(100%,340px);aspect-ratio:1;display:block}
+.map{width:min(100%,340px);aspect-ratio:1;display:block;border-radius:12px}
 /* Typed answers: the map shrinks to fit above the keyboard, the answer box stays pinned under it. */
 .stage.typed{justify-content:flex-start;gap:8px;overflow:hidden;padding:6px 4px}
 .mapbox{flex:1;min-height:90px;width:100%;position:relative;display:flex;align-items:center;justify-content:center}
@@ -70,7 +72,6 @@ h2{font-size:13px;font-weight:600;margin:0;color:var(--muted);text-transform:upp
 .fb .miss{color:var(--bad);font-size:14px;text-decoration:line-through;overflow-wrap:anywhere}
 .typef{display:flex;flex-direction:column;gap:6px;padding-top:8px}
 .typef input[type=text]{min-height:52px;border-radius:14px;font-size:18px}
-.typef .btn.primary{min-height:52px;border-radius:14px;padding:8px 18px}
 .typef .btn.quiet{align-self:center}
 body.kb .app{position:fixed;top:var(--vt,0px);left:0;right:0;height:var(--vh,100%)}
 body.kb .tabs{display:none}
@@ -291,8 +292,9 @@ function reveal(kind){var s=sess[kind];if(s&&s.cur&&!s.cur.revealed){s.cur.revea
 function dontKnow(kind){var s=sess[kind];if(!s||!s.cur)return;if(s.cur.revealed)grade(kind,false);else{s.cur.revealed=true;s.cur.missed=true;render();}}
 function choose(kind,opt){var s=sess[kind];if(s&&s.cur&&s.cur.chosen==null){s.cur.chosen=opt;render();}}
 
-/* ---------- typed answers. Case, accents, punctuation and a leading "the" are ignored; common other names count.
-   A first try may be one letter off (two for long names). After a miss the answer must be copied without typos. ---------- */
+/* ---------- typed answers, checked on every keystroke with no Enter needed. Case, accents, punctuation and spaces are
+   ignored and common other names count. The first letter that cannot lead to an accepted name marks the card missed and
+   shows the answer; typing the answer then moves on. ---------- */
 function norm(x){
   var n=String(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/&/g," and ").replace(/\bst\.?\s+/g,"saint ").replace(/^\s*the\s+/,"").replace(/[^a-z0-9]/g,"");
   return n||String(x).trim().toLowerCase();
@@ -308,32 +310,63 @@ var ALIASES={};
  ["United Arab Emirates","UAE","Emirates"],["United Kingdom","UK","Great Britain","Britain"],["United States","USA","US","United States of America","America"],
  ["Vatican City","Vatican","Holy See"],["Vietnam","Viet Nam"]
 ].forEach(function(r){ALIASES[norm(r[0])]=r.slice(1).map(norm);});
+/* Names often said with "the" in front; for these a leading "the" is not a wrong letter. */
+var WITH_THE={};
+["Bahamas","Gambia","Netherlands","Philippines","Maldives","Seychelles","Comoros","Marshall Islands","Solomon Islands","United States","United Kingdom","United Arab Emirates",
+ "Central African Republic","Dominican Republic","Congo (Democratic Republic)","Congo (Republic)","Czechia","Vatican City"].forEach(function(x){WITH_THE[norm(x)]=1;});
 function accepted(card){
   var a=norm(card.a),out=[a];
   (Array.isArray(card.alt)?card.alt:[]).forEach(function(x){if(typeof x==="string")out.push(norm(x));});
   return out.concat(ALIASES[a]||[]);
 }
-function lev(a,b){
-  var prev=[],i,j;for(j=0;j<=b.length;j++)prev[j]=j;
-  for(i=1;i<=a.length;i++){var cur=[i];for(j=1;j<=b.length;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a.charAt(i-1)===b.charAt(j-1)?0:1));prev=cur;}
-  return prev[b.length];
+function typeForms(card){
+  var the=WITH_THE[norm(card.a)],out=[];
+  accepted(card).forEach(function(f){out.push(f);if(the)out.push("the"+f);if(f.indexOf("saint")===0)out.push("st"+f.slice(5));});
+  return out;
 }
-/* true, "close" (right country, small typo) or false */
-function matchAnswer(t,card,text){
-  var n=norm(text),acc=accepted(card);
-  if(acc.indexOf(n)>=0)return true;
-  var near=acc.some(function(a){var tol=a.length>=11?2:a.length>=6?1:0;return tol>0&&Math.abs(a.length-n.length)<=tol&&lev(n,a)<=tol;});
-  if(!near)return false;
-  var other=cards(t).some(function(c){return c.id!==card.id&&accepted(c).indexOf(n)>=0;});
-  return other?false:"close";
+var typedUI=null;
+function onType(){
+  var u=typedUI,S=sess.flash,c=S&&S.cur;if(!u||!c||c.format!=="type")return;
+  var t=byId(S.topicId),card=t&&findCard(t,c.id);if(!card)return;
+  var raw=u.inp.value,n=norm(raw);
+  if(!n){c.draft=raw;return;}
+  var forms=typeForms(card),exact=forms.indexOf(n)>=0,prefix=exact||forms.some(function(f){return f.indexOf(n)===0;});
+  if(c.revealed){
+    if(exact){S.last=null;c.draft="";grade("flash",false);}
+    else if(prefix)c.draft=raw;
+    else u.inp.value=c.draft||"";
+    return;
+  }
+  if(exact){S.last="✓ "+card.a;c.draft="";grade("flash",true);}
+  else if(prefix)c.draft=raw;
+  else{c.revealed=true;c.missed=true;c.guess=raw.trim();c.draft="";render();}
 }
-function submitTyped(kind,text){
-  var s=sess[kind],c=s&&s.cur;if(!c)return;var t=byId(s.topicId),card=t&&findCard(t,c.id);if(!card)return;
-  text=String(text).trim();if(!text){render();return;}
-  var r=matchAnswer(t,card,text);c.draft="";
-  if(c.revealed){if(r===true){s.last=null;grade(kind,false);}else{c.retry=true;render();}return;}
-  if(r){s.last="✓ "+card.a+(r==="close"?" (check the spelling)":"");grade(kind,true);}
-  else{c.revealed=true;c.missed=true;c.guess=text;render();}
+/* Updates the typing screen in place. The answer box is never rebuilt, so the phone keyboard stays up from card to card. */
+function paintTyped(t,card){
+  var u=typedUI,S=sess.flash,c=S.cur,pc=mastery(cards(t)),retype=c.revealed;
+  u.stat.textContent=pc+"% mastered";u.bar.style.width=pc+"%";u.meter.setAttribute("aria-label",pc+"% mastered");
+  var key=card.id+"|"+geoState;
+  if(u.key!==key){
+    u.key=key;u.top.textContent="";u.top.className=card.map?"mapbox":"";
+    u.top.appendChild(card.map?mapEl(card):h("div",{class:"prompt"+(card.q.length>40?" long":""),text:card.q}));
+  }
+  u.fb.textContent="";
+  if(retype){
+    if(c.guess)u.fb.appendChild(h("div",{class:"miss",text:c.guess}));
+    u.fb.appendChild(h("div",{class:"answer",text:card.a}));
+    u.fb.appendChild(h("div",{class:"hint",text:"Type it to continue"}));
+  }else if(S.last)u.fb.appendChild(h("div",{class:"ok",text:S.last}));
+  else u.fb.appendChild(h("div",{class:"hint",text:"Start typing. A wrong letter shows the answer."}));
+  u.inp.placeholder=retype?"Type the correct answer":card.map?"Which country?":"Type your answer";
+  u.inp.setAttribute("aria-label",retype?"Type the correct answer":"Your answer");
+  if(u.inp.value!==(c.draft||""))u.inp.value=c.draft||"";
+  u.dk.style.visibility=retype?"hidden":"visible";
+}
+function tryPaintTyped(){
+  if(status!=="ready"||tab!=="topics"||topicsView!=="study"||!typedUI||!document.body.contains(typedUI.wrap))return false;
+  var t=byId(currentId);if(!t||typedUI.topicId!==t.id)return false;
+  var card=step(t,"flash");if(!card||sess.flash.cur.format!=="type")return false;
+  paintTyped(t,card);return true;
 }
 
 /* ---------- country maps (cards with a "map" field) ---------- */
@@ -364,6 +397,23 @@ function focusShape(f){
   var keep=polys.filter(function(p){return p===main||d3.geoDistance(mc,d3.geoCentroid(p))<lim;});
   return {type:"MultiPolygon",coordinates:keep.map(function(p){return p.coordinates;})};
 }
+/* A view that is nearly all sea says little about where a country is. Starting from the close-up scale, zoom out
+   until other land fills at least 6% of the frame (or the whole globe shows). Measured on a small hidden canvas. */
+var zoomCache={};
+function contextScale(name,f,center,scale,W){
+  if(zoomCache[name])return zoomCache[name];
+  var d3=window.d3,N=56,min=W/2*0.96,c=document.createElement("canvas");c.width=c.height=N;
+  var x=c.getContext("2d",{willReadFrequently:true});
+  for(var i=0;i<20;i++){
+    var proj=d3.geoOrthographic().rotate([-center[0],-center[1]]).translate([N/2,N/2]).scale(scale*N/W).clipExtent([[0,0],[N,N]]);
+    var path=d3.geoPath(proj,x);
+    x.clearRect(0,0,N,N);x.beginPath();geo.features.forEach(function(o){if(o!==f)path(o);});x.fillStyle="#000";x.fill();
+    var d=x.getImageData(0,0,N,N).data,n=0;for(var k=3;k<d.length;k+=4)if(d[k]>127)n++;
+    if(n/(N*N)>=0.06||scale<=min)break;
+    scale=Math.max(scale*0.8,min);
+  }
+  return zoomCache[name]=scale;
+}
 function drawMap(canvas,name){
   var d3=window.d3,W=340,dpr=Math.min(window.devicePixelRatio||1,3);
   canvas.width=W*dpr;canvas.height=W*dpr;
@@ -375,14 +425,26 @@ function drawMap(canvas,name){
   var size=0,scale=2600;
   if(focus){var b=d3.geoPath(proj).bounds(focus);size=Math.max(b[1][0]-b[0][0],b[1][1]-b[0][1]);scale=0.5*W/Math.max(size,1e-9);}
   scale=Math.min(Math.max(scale,W/2*0.96),2600);
+  try{scale=contextScale(name,f,center,scale,W);}catch(e){}
   proj.scale(scale).clipExtent([[0,0],[W,W]]);
   var path=d3.geoPath(proj,ctx);
-  ctx.beginPath();path({type:"Sphere"});ctx.fillStyle=v("--surface");ctx.fill();
+  ctx.fillStyle=v("--bg");ctx.fillRect(0,0,W,W);
+  ctx.beginPath();path({type:"Sphere"});ctx.fillStyle=v("--sea");ctx.fill();
   ctx.beginPath();geo.features.forEach(function(x){if(x!==f)path(x);});
-  ctx.fillStyle=v("--line");ctx.fill();ctx.strokeStyle=v("--surface");ctx.lineWidth=0.6;ctx.stroke();
-  if(f){ctx.beginPath();path(f);ctx.fillStyle=v("--accent");ctx.fill();}
-  if(!f||size*scale<16){ctx.beginPath();ctx.arc(W/2,W/2,13,0,2*Math.PI);ctx.strokeStyle=v("--accent");ctx.lineWidth=2.5;ctx.stroke();}
-  ctx.beginPath();path({type:"Sphere"});ctx.strokeStyle=v("--line");ctx.lineWidth=1;ctx.stroke();
+  ctx.fillStyle=v("--land");ctx.fill();ctx.strokeStyle=v("--mapline");ctx.lineWidth=0.6;ctx.stroke();
+  if(f){ctx.beginPath();path(f);ctx.fillStyle=v("--accent");ctx.fill();ctx.strokeStyle=v("--accent");ctx.lineWidth=0.8;ctx.stroke();}
+  /* Too few filled pixels to spot: mark each speck with a dot and ring the group. */
+  var px=f?d3.geoPath(proj).area(f):0;
+  if(!f||px<90){
+    ctx.fillStyle=v("--accent");
+    if(!f){ctx.beginPath();ctx.arc(W/2,W/2,3,0,2*Math.PI);ctx.fill();}
+    else(f.geometry.type==="MultiPolygon"?f.geometry.coordinates:[f.geometry.coordinates]).forEach(function(c){
+      var q=proj(d3.geoCentroid({type:"Polygon",coordinates:c}));
+      if(q&&q[0]>=0&&q[0]<=W&&q[1]>=0&&q[1]<=W){ctx.beginPath();ctx.arc(q[0],q[1],2.2,0,2*Math.PI);ctx.fill();}
+    });
+    ctx.beginPath();ctx.arc(W/2,W/2,Math.min(Math.max(14,size*scale/2+8),W/2-6),0,2*Math.PI);ctx.strokeStyle=v("--accent");ctx.lineWidth=2.5;ctx.stroke();
+  }
+  ctx.beginPath();path({type:"Sphere"});ctx.strokeStyle=v("--mapline");ctx.lineWidth=1;ctx.stroke();
 }
 function mapEl(card){
   if(geoState!=="ready"){loadGeo();return h("div",{class:"hint",text:geoState==="failed"?"The map could not load. Check your connection and reload.":"Loading map…"});}
@@ -504,24 +566,18 @@ function renderStudy(m,t,kind){
     wrap.appendChild(h("div",{class:"stage static"},card.map?mapEl(card):h("div",{class:"prompt"+(long?" long":""),text:card.q}),opts));
     if(done){focusEl=h("button",{class:"big yes",type:"button",text:"Next",onclick:function(){grade(kind,s.chosen===card.a);}});wrap.appendChild(h("div",{class:"actions one"},focusEl));}
   }else if(s.format==="type"){
-    var retype=s.revealed,fb=h("div",{class:"fb","aria-live":"polite"});
-    if(retype){
-      if(s.guess)fb.appendChild(h("div",{class:"miss",text:s.guess}));
-      fb.appendChild(h("div",{class:"answer",text:card.a}));
-      fb.appendChild(h("div",{class:"hint",text:s.retry?"Not quite. Copy the spelling above.":"Type it to continue"}));
-    }else if(sess[kind].last)fb.appendChild(h("div",{class:"ok",text:sess[kind].last}));
-    else fb.appendChild(h("div",{class:"hint",text:card.map?"Which country is highlighted?":"Type the answer"}));
-    wrap.appendChild(h("div",{class:"stage static typed"},
-      card.map?h("div",{class:"mapbox"},mapEl(card)):h("div",{class:"prompt"+(long?" long":""),text:card.q}),fb));
-    var inp=h("input",{type:"text","aria-label":retype?"Type the correct answer":"Your answer",placeholder:retype?"Type the correct answer":"Type your answer",
-      autocomplete:"off",autocorrect:"off",autocapitalize:"words",spellcheck:"false",enterkeyhint:retype?"next":"go",
-      oninput:function(){s.draft=inp.value;}});
-    inp.value=s.draft||"";
-    wrap.appendChild(h("form",{class:"typef",onsubmit:function(e){e.preventDefault();submitTyped(kind,inp.value);}},
-      h("div",{class:"inline"},inp,h("button",{class:"btn primary",type:"submit",text:retype?"Next":"Check"})),
-      retype?null:h("button",{class:"btn quiet",type:"button",text:"Don't know",onclick:function(){s.draft="";dontKnow(kind);}})));
+    var u=typedUI={wrap:wrap,topicId:t.id,key:null,stat:wrap.querySelector(".stat"),bar:mb,meter:mb.parentNode};
+    u.top=h("div");u.fb=h("div",{class:"fb","aria-live":"polite"});
+    u.inp=h("input",{type:"text",autocomplete:"off",autocorrect:"off",autocapitalize:"words",spellcheck:"false",enterkeyhint:"done",
+      oninput:function(e){if(!e.isComposing)onType();},oncompositionend:onType});
+    u.dk=h("button",{class:"btn quiet",type:"button",text:"Don't know",
+      onmousedown:function(e){e.preventDefault();},
+      onclick:function(){var c=sess.flash&&sess.flash.cur;if(c&&!c.revealed){c.draft="";c.guess=null;dontKnow("flash");}u.inp.focus();}});
+    wrap.appendChild(h("div",{class:"stage static typed"},u.top,u.fb));
+    wrap.appendChild(h("form",{class:"typef",onsubmit:function(e){e.preventDefault();}},u.inp,u.dk));
     m.appendChild(wrap);
-    try{inp.focus({preventScroll:true});}catch(e){inp.focus();}
+    paintTyped(t,card);
+    try{u.inp.focus({preventScroll:true});}catch(e){u.inp.focus();}
     return;
   }else{
     wrap.appendChild(h("button",{class:"stage",type:"button","aria-label":s.revealed?"Answer shown":"Show answer",onclick:function(){reveal(kind);}},
@@ -635,8 +691,10 @@ function renderSettings(m){
     h("button",{class:"big",type:"button",text:"Log out",onclick:logOut})));
 }
 function render(){
-  var m=document.getElementById("main");m.textContent="";
+  var m=document.getElementById("main");
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.setAttribute("aria-current",b.getAttribute("data-tab")===tab?"page":"false");});
+  if(tryPaintTyped())return;
+  m.textContent="";typedUI=null;
   if(status!=="ready"){
     var p=h("div",{class:"page"});
     if(status==="loading")p.appendChild(h("div",{class:"empty",text:"Loading…"}));
