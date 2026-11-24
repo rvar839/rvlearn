@@ -58,6 +58,9 @@ h2{font-size:13px;font-weight:600;margin:0;color:var(--muted);text-transform:upp
 .stage.static{cursor:default}
 .prompt{font-family:var(--display);font-weight:700;font-size:32px;line-height:1.15;letter-spacing:-.01em;text-wrap:balance;overflow-wrap:anywhere}
 .prompt.long{font-weight:500;font-size:25px}
+.map{width:min(100%,340px);aspect-ratio:1;display:block}
+.smeter{height:4px;border-radius:2px;background:var(--line);overflow:hidden;margin:2px 0 4px}
+.smeter i{display:block;height:100%;background:var(--accent);border-radius:2px}
 .answer{font-size:20px;font-weight:600;color:var(--good);overflow-wrap:anywhere}
 .hint{font-size:14px;color:var(--muted)}
 .options{display:flex;flex-direction:column;gap:10px;width:100%}
@@ -195,7 +198,7 @@ function removeTopic(t){
 }
 
 /* ---------- navigation ---------- */
-function setTab(name){tab=name;if(name==="topics")topicsView="list";if(name==="settings"){settingsView="main";editing=null;confirmDelete=false;}render();}
+function setTab(name){if(name==="topics"||name==="analytics")refreshTopics();tab=name;if(name==="topics")topicsView="list";if(name==="settings"){settingsView="main";editing=null;confirmDelete=false;}render();}
 function openTopic(id){currentId=id;try{localStorage.setItem("rv_last",id);}catch(e){}sess.flash=null;sess.mcq=null;tab="topics";topicsView="study";render();}
 function addTopic(name){
   name=name.trim();if(!name)return;
@@ -244,6 +247,61 @@ function reveal(kind){var s=sess[kind];if(s&&s.cur&&!s.cur.revealed){s.cur.revea
 function dontKnow(kind){var s=sess[kind];if(!s||!s.cur)return;if(s.cur.revealed)grade(kind,false);else{s.cur.revealed=true;s.cur.missed=true;render();}}
 function choose(kind,opt){var s=sess[kind];if(s&&s.cur&&s.cur.chosen==null){s.cur.chosen=opt;render();}}
 
+/* ---------- country maps (cards with a "map" field) ---------- */
+var geo=null, geoState="idle";
+var GEO_POINTS={"Tuvalu":[179.2,-8.5]};
+function loadScript(src){return new Promise(function(res,rej){var e=document.createElement("script");e.src=src;e.onload=res;e.onerror=rej;document.head.appendChild(e);});}
+function loadGeo(){
+  if(geoState!=="idle")return;geoState="loading";
+  loadScript("https://cdn.jsdelivr.net/npm/d3-array@3.2.4/dist/d3-array.min.js")
+    .then(function(){return loadScript("https://cdn.jsdelivr.net/npm/d3-geo@3.1.1/dist/d3-geo.min.js");})
+    .then(function(){return loadScript("https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js");})
+    .then(function(){return fetch("countries-50m.json");})
+    .then(function(r){if(!r.ok)throw new Error("map");return r.json();})
+    .then(function(topo){
+      var fs=window.topojson.feature(topo,topo.objects.countries).features,by={};
+      fs.forEach(function(f){by[f.properties.name]=f;});
+      geo={features:fs,byName:by};geoState="ready";render();
+    }).catch(function(){geoState="failed";render();});
+}
+/* The part of a country to centre and zoom on: its largest piece plus pieces within 30 degrees of it. */
+function focusShape(f){
+  var d3=window.d3,g=f.geometry;
+  if(!g||g.type!=="MultiPolygon")return f;
+  var polys=g.coordinates.map(function(c){return {type:"Polygon",coordinates:c};});
+  var main=polys[0],best=-1;
+  polys.forEach(function(p){var a=d3.geoArea(p);if(a>best){best=a;main=p;}});
+  var mc=d3.geoCentroid(main),lim=30*Math.PI/180;
+  var keep=polys.filter(function(p){return p===main||d3.geoDistance(mc,d3.geoCentroid(p))<lim;});
+  return {type:"MultiPolygon",coordinates:keep.map(function(p){return p.coordinates;})};
+}
+function drawMap(canvas,name){
+  var d3=window.d3,W=340,dpr=Math.min(window.devicePixelRatio||1,3);
+  canvas.width=W*dpr;canvas.height=W*dpr;
+  var ctx=canvas.getContext("2d");ctx.scale(dpr,dpr);
+  var cs=getComputedStyle(document.documentElement);
+  function v(n){return cs.getPropertyValue(n).trim();}
+  var f=geo.byName[name],focus=f?focusShape(f):null,center=focus?d3.geoCentroid(focus):(GEO_POINTS[name]||[0,0]);
+  var proj=d3.geoOrthographic().rotate([-center[0],-center[1]]).translate([W/2,W/2]).scale(1);
+  var size=0,scale=2600;
+  if(focus){var b=d3.geoPath(proj).bounds(focus);size=Math.max(b[1][0]-b[0][0],b[1][1]-b[0][1]);scale=0.5*W/Math.max(size,1e-9);}
+  scale=Math.min(Math.max(scale,W/2*0.96),2600);
+  proj.scale(scale).clipExtent([[0,0],[W,W]]);
+  var path=d3.geoPath(proj,ctx);
+  ctx.beginPath();path({type:"Sphere"});ctx.fillStyle=v("--surface");ctx.fill();
+  ctx.beginPath();geo.features.forEach(function(x){if(x!==f)path(x);});
+  ctx.fillStyle=v("--line");ctx.fill();ctx.strokeStyle=v("--surface");ctx.lineWidth=0.6;ctx.stroke();
+  if(f){ctx.beginPath();path(f);ctx.fillStyle=v("--accent");ctx.fill();}
+  if(!f||size*scale<16){ctx.beginPath();ctx.arc(W/2,W/2,13,0,2*Math.PI);ctx.strokeStyle=v("--accent");ctx.lineWidth=2.5;ctx.stroke();}
+  ctx.beginPath();path({type:"Sphere"});ctx.strokeStyle=v("--line");ctx.lineWidth=1;ctx.stroke();
+}
+function mapEl(card){
+  if(geoState!=="ready"){loadGeo();return h("div",{class:"hint",text:geoState==="failed"?"The map could not load. Check your connection and reload.":"Loading map…"});}
+  var c=h("canvas",{class:"map",role:"img","aria-label":"Map with one country highlighted"});
+  try{drawMap(c,card.map);}catch(e){return h("div",{class:"hint",text:"This map could not be drawn."});}
+  return c;
+}
+
 /* ---------- card management ---------- */
 function addCard(){
   var t=byId(manageId);if(!t)return;var q=draft.q.trim(),a=draft.a.trim();
@@ -286,7 +344,9 @@ function renderStudy(m,t,kind){
   wrap.appendChild(h("div",{class:"bar"},
     kind==="flash"?h("button",{class:"icon",type:"button","aria-label":"All topics",text:"‹",onclick:function(){topicsView="list";render();}}):null,
     h("div",{class:"name",text:t.name}),
-    h("div",{class:"stat",text:card?(due?due+" due":"Caught up"):""})));
+    h("div",{class:"stat",text:card?(mastery(cards(t))+"% mastered · "+(due?due+" due":"caught up")):""})));
+  var mb=h("i");mb.style.width=mastery(cards(t))+"%";
+  wrap.appendChild(h("div",{class:"smeter",role:"img","aria-label":mastery(cards(t))+"% mastered"},mb));
   if(!card){
     wrap.appendChild(h("div",{class:"stage static"},h("div",{class:"hint",text:"No cards in this topic yet. Add cards in Settings."})));
     m.appendChild(wrap);return;
@@ -298,11 +358,11 @@ function renderStudy(m,t,kind){
       var cls="opt"+(done&&o===card.a?" right":"")+(done&&o===s.chosen&&o!==card.a?" wrong":"");
       opts.appendChild(h("button",{class:cls,type:"button",disabled:done,text:o,onclick:function(){choose(kind,o);}}));
     });
-    wrap.appendChild(h("div",{class:"stage static"},h("div",{class:"prompt"+(long?" long":""),text:card.q}),opts));
+    wrap.appendChild(h("div",{class:"stage static"},card.map?mapEl(card):h("div",{class:"prompt"+(long?" long":""),text:card.q}),opts));
     if(done){focusEl=h("button",{class:"big yes",type:"button",text:"Next",onclick:function(){grade(kind,s.chosen===card.a);}});wrap.appendChild(h("div",{class:"actions one"},focusEl));}
   }else{
     wrap.appendChild(h("button",{class:"stage",type:"button","aria-label":s.revealed?"Answer shown":"Show answer",onclick:function(){reveal(kind);}},
-      h("div",{class:"prompt"+(long?" long":""),text:card.q}),
+      card.map?mapEl(card):h("div",{class:"prompt"+(long?" long":""),text:card.q}),
       s.revealed?h("div",{class:"answer",text:card.a}):h("div",{class:"hint",text:"Tap to flip"})));
     if(s.missed){
       focusEl=h("button",{class:"big yes",type:"button",text:"Next",onclick:function(){grade(kind,false);}});
@@ -437,9 +497,22 @@ function loadTopics(){
     if(r.error){status="unreachable";render();return;}
     if(!r.data.length){topics=seedTopics();topics.forEach(save);}
     else topics=r.data.map(function(row){return {id:row.id,name:row.name,order:row.ord,mode:row.mode,notes:row.notes,cards:Array.isArray(row.cards)?row.cards:[]};});
-    status="ready";render();
+    status="ready";lastLoad=Date.now();render();
   },function(){status="unreachable";render();});
 }
+var lastLoad=0;
+function refreshTopics(){
+  if(!sb||status!=="ready"||Date.now()-lastLoad<15000)return;
+  var a=document.activeElement;if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"))return;
+  lastLoad=Date.now();
+  var pending=Object.keys(writeChain).map(function(k){return writeChain[k];});
+  Promise.all(pending).then(function(){return sb.from("topics").select("*").order("ord");}).then(function(r){
+    if(r.error||!r.data.length)return;
+    topics=r.data.map(function(row){return {id:row.id,name:row.name,order:row.ord,mode:row.mode,notes:row.notes,cards:Array.isArray(row.cards)?row.cards:[]};});
+    render();
+  },function(){});
+}
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")refreshTopics();});
 var loginEl=document.getElementById("login"),passForm=document.getElementById("passForm"),passIn=document.getElementById("pass"),loginMsg=document.getElementById("loginMsg"),whoBtn=document.getElementById("whoBtn");
 function showLogin(msg){document.body.classList.add("locked");loginEl.hidden=false;passForm.hidden=true;whoBtn.hidden=false;passIn.value="";loginMsg.textContent=msg||"";}
 function unlock(){document.body.classList.remove("locked");loginEl.hidden=true;tab="topics";topicsView="list";loadTopics();}
