@@ -16,6 +16,7 @@
   --bg:#f5f6f9; --surface:#ffffff; --ink:#141b2d; --muted:#6a7389; --line:#e1e5ee;
   --accent:#2f43c4; --accent-ink:#ffffff; --accent-soft:#e8ebfb; --accent-mid:#97a2e2;
   --good:#1c7c4a; --good-soft:#e0f3e8; --bad:#b3261e; --bad-soft:#fbe6e4;
+  --warn:#d99a1c; --good-mid:#7fcf9f;
   --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
   --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
 }
@@ -24,6 +25,7 @@
     --bg:#0e1220; --surface:#171c2d; --ink:#eaedf6; --muted:#939cb4; --line:#272e45;
     --accent:#8c9bff; --accent-ink:#0e1220; --accent-soft:#222949; --accent-mid:#4f5aa8;
     --good:#6fd39a; --good-soft:#163225; --bad:#ff8a80; --bad-soft:#3b1d1b;
+    --warn:#f0b849; --good-mid:#2f7a52;
     color-scheme:dark;
   }
 }
@@ -59,6 +61,25 @@ h2{font-size:13px;font-weight:600;margin:0;color:var(--muted);text-transform:upp
 .prompt{font-family:var(--display);font-weight:700;font-size:32px;line-height:1.15;letter-spacing:-.01em;text-wrap:balance;overflow-wrap:anywhere}
 .prompt.long{font-weight:500;font-size:25px}
 .map{width:min(100%,340px);aspect-ratio:1;display:block}
+/* Typed answers: the map shrinks to fit above the keyboard, the answer box stays pinned under it. */
+.stage.typed{justify-content:flex-start;gap:8px;overflow:hidden;padding:6px 4px}
+.mapbox{flex:1;min-height:90px;width:100%;position:relative;display:flex;align-items:center;justify-content:center}
+.mapbox .map{position:absolute;inset:0;margin:auto;width:auto;height:auto;max-width:min(100%,340px);max-height:100%}
+.fb{min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.fb .ok{color:var(--good);font-weight:600;font-size:15px}
+.fb .miss{color:var(--bad);font-size:14px;text-decoration:line-through;overflow-wrap:anywhere}
+.typef{display:flex;flex-direction:column;gap:6px;padding-top:8px}
+.typef input[type=text]{min-height:52px;border-radius:14px;font-size:18px}
+.typef .btn.primary{min-height:52px;border-radius:14px;padding:8px 18px}
+.typef .btn.quiet{align-self:center}
+body.kb .app{position:fixed;top:var(--vt,0px);left:0;right:0;height:var(--vh,100%)}
+body.kb .tabs{display:none}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:2px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;min-height:36px;padding:4px 12px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent-mid);color:var(--accent)}
+.wmap{display:block;width:100%;height:auto}
+.dot.m0{background:var(--line)} .dot.m1{background:var(--bad)} .dot.m2{background:var(--warn)} .dot.m3{background:var(--good-mid)} .dot.m4{background:var(--good)}
+body.kb .fb{min-height:0} body.kb .typef .btn.quiet{min-height:36px}
 .smeter{height:4px;border-radius:2px;background:var(--line);overflow:hidden;margin:2px 0 4px}
 .smeter i{display:block;height:100%;background:var(--accent);border-radius:2px}
 .answer{font-size:20px;font-weight:600;color:var(--good);overflow-wrap:anywhere}
@@ -243,7 +264,8 @@ function step(t,kind){
   var r=Math.random()*total,card=pool[pool.length-1];
   for(var i=0;i<pool.length;i++){r-=ws[i];if(r<=0){card=pool[i];break;}}
   var options=kind==="mcq"?buildOptions(t,card):null;
-  s.cur={id:card.id,format:options?"mcq":"flash",options:options,chosen:null,revealed:false,missed:false};
+  var typed=kind==="flash"&&(card.map||t.mode==="type");
+  s.cur={id:card.id,format:options?"mcq":typed?"type":"flash",options:options,chosen:null,revealed:false,missed:false,guess:null,retry:false,draft:""};
   return card;
 }
 function pad(n){return n<10?"0"+n:""+n;}
@@ -268,6 +290,51 @@ function activeKind(){return tab==="qstream"?"mcq":(tab==="topics"&&topicsView==
 function reveal(kind){var s=sess[kind];if(s&&s.cur&&!s.cur.revealed){s.cur.revealed=true;render();}}
 function dontKnow(kind){var s=sess[kind];if(!s||!s.cur)return;if(s.cur.revealed)grade(kind,false);else{s.cur.revealed=true;s.cur.missed=true;render();}}
 function choose(kind,opt){var s=sess[kind];if(s&&s.cur&&s.cur.chosen==null){s.cur.chosen=opt;render();}}
+
+/* ---------- typed answers. Case, accents, punctuation and a leading "the" are ignored; common other names count.
+   A first try may be one letter off (two for long names). After a miss the answer must be copied without typos. ---------- */
+function norm(x){
+  var n=String(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/&/g," and ").replace(/\bst\.?\s+/g,"saint ").replace(/^\s*the\s+/,"").replace(/[^a-z0-9]/g,"");
+  return n||String(x).trim().toLowerCase();
+}
+var ALIASES={};
+[["Antigua and Barbuda","Antigua"],["Bosnia and Herzegovina","Bosnia","Bosnia Herzegovina"],["Brunei","Brunei Darussalam"],["Cabo Verde","Cape Verde"],
+ ["Central African Republic","CAR"],["Congo (Democratic Republic)","Democratic Republic of the Congo","Democratic Republic of Congo","DR Congo","DRC","Congo Kinshasa","Dem Rep Congo"],
+ ["Congo (Republic)","Republic of the Congo","Republic of Congo","Congo","Congo Brazzaville","Congo Republic"],["Côte d'Ivoire","Ivory Coast"],["Czechia","Czech Republic"],
+ ["Eswatini","Swaziland"],["Kyrgyzstan","Kyrgyz Republic"],["Micronesia","Federated States of Micronesia","FSM"],["Myanmar","Burma"],["Netherlands","Holland"],
+ ["North Korea","DPRK","Korea North"],["North Macedonia","Macedonia"],["Palestine","State of Palestine","Palestinian Territories"],["Papua New Guinea","PNG"],
+ ["Russia","Russian Federation"],["Saint Kitts and Nevis","Saint Kitts"],["Saint Vincent and the Grenadines","Saint Vincent"],["São Tomé and Príncipe","Sao Tome"],
+ ["South Korea","Korea","Republic of Korea","Korea South"],["Timor-Leste","East Timor"],["Trinidad and Tobago","Trinidad"],["Turkey","Turkiye"],
+ ["United Arab Emirates","UAE","Emirates"],["United Kingdom","UK","Great Britain","Britain"],["United States","USA","US","United States of America","America"],
+ ["Vatican City","Vatican","Holy See"],["Vietnam","Viet Nam"]
+].forEach(function(r){ALIASES[norm(r[0])]=r.slice(1).map(norm);});
+function accepted(card){
+  var a=norm(card.a),out=[a];
+  (Array.isArray(card.alt)?card.alt:[]).forEach(function(x){if(typeof x==="string")out.push(norm(x));});
+  return out.concat(ALIASES[a]||[]);
+}
+function lev(a,b){
+  var prev=[],i,j;for(j=0;j<=b.length;j++)prev[j]=j;
+  for(i=1;i<=a.length;i++){var cur=[i];for(j=1;j<=b.length;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a.charAt(i-1)===b.charAt(j-1)?0:1));prev=cur;}
+  return prev[b.length];
+}
+/* true, "close" (right country, small typo) or false */
+function matchAnswer(t,card,text){
+  var n=norm(text),acc=accepted(card);
+  if(acc.indexOf(n)>=0)return true;
+  var near=acc.some(function(a){var tol=a.length>=11?2:a.length>=6?1:0;return tol>0&&Math.abs(a.length-n.length)<=tol&&lev(n,a)<=tol;});
+  if(!near)return false;
+  var other=cards(t).some(function(c){return c.id!==card.id&&accepted(c).indexOf(n)>=0;});
+  return other?false:"close";
+}
+function submitTyped(kind,text){
+  var s=sess[kind],c=s&&s.cur;if(!c)return;var t=byId(s.topicId),card=t&&findCard(t,c.id);if(!card)return;
+  text=String(text).trim();if(!text){render();return;}
+  var r=matchAnswer(t,card,text);c.draft="";
+  if(c.revealed){if(r===true){s.last=null;grade(kind,false);}else{c.retry=true;render();}return;}
+  if(r){s.last="✓ "+card.a+(r==="close"?" (check the spelling)":"");grade(kind,true);}
+  else{c.revealed=true;c.missed=true;c.guess=text;render();}
+}
 
 /* ---------- country maps (cards with a "map" field) ---------- */
 var geo=null, geoState="idle";
@@ -324,6 +391,81 @@ function mapEl(card){
   return c;
 }
 
+/* World map for Analytics: each country coloured by how well its map card is known. */
+var mapRegion="World";
+var REGIONS=[["World",null],["Africa",[-20,-36,53,38]],["Americas",[-128,-56,-34,62]],["Asia",[26,-11,146,56]],["Europe",[-25,34,45,71]],["Oceania",[110,-48,215,22]]];
+function drawWorld(canvas,lv){
+  var d3=window.d3,W=340,reg=null;REGIONS.forEach(function(r){if(r[0]===mapRegion)reg=r[1];});
+  var H=Math.round(W*(reg?0.9:0.52)),dpr=Math.min(window.devicePixelRatio||1,3);
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  var ctx=canvas.getContext("2d");ctx.scale(dpr,dpr);
+  var cs=getComputedStyle(document.documentElement);
+  function v(n){return cs.getPropertyValue(n).trim();}
+  var ext=[[3,3],[W-3,H-3]],proj;
+  if(reg)proj=d3.geoMercator().rotate([-(reg[0]+reg[2])/2,0]).fitExtent(ext,{type:"MultiPoint",coordinates:[[reg[0],reg[1]],[reg[0],reg[3]],[reg[2],reg[1]],[reg[2],reg[3]]]});
+  else proj=d3.geoNaturalEarth1().fitExtent(ext,{type:"MultiPoint",coordinates:[[-180,0],[180,0],[0,84],[0,-57]]});
+  proj.clipExtent([[0,0],[W,H]]);
+  var path=d3.geoPath(proj,ctx),col=[v("--line"),v("--bad"),v("--warn"),v("--good-mid"),v("--good")];
+  var groups=[[],[],[],[],[],[]],dots=[],name;
+  function dot(lonlat,l){var p=proj(lonlat);if(p&&p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H)dots.push([p[0],p[1],l]);}
+  geo.features.forEach(function(f){
+    var l=lv[f.properties.name];
+    if(l==null){groups[5].push(f);return;}
+    groups[l].push(f);
+    var b=d3.geoPath(proj).bounds(f);
+    if(!isFinite(b[0][0])||Math.max(b[1][0]-b[0][0],b[1][1]-b[0][1])<5)dot(d3.geoCentroid(focusShape(f)),l);
+  });
+  for(name in lv)if(!geo.byName[name]&&GEO_POINTS[name])dot(GEO_POINTS[name],lv[name]);
+  [5,0,1,2,3,4].forEach(function(l){
+    if(!groups[l].length)return;
+    ctx.beginPath();groups[l].forEach(function(f){path(f);});
+    ctx.fillStyle=l===5?v("--line"):col[l];ctx.globalAlpha=l===5?0.55:1;ctx.fill();ctx.globalAlpha=1;
+    ctx.strokeStyle=v("--surface");ctx.lineWidth=0.5;ctx.stroke();
+  });
+  dots.sort(function(a,b){return a[2]-b[2];}).forEach(function(d){
+    ctx.beginPath();ctx.arc(d[0],d[1],reg?3.2:2.4,0,2*Math.PI);ctx.fillStyle=col[d[2]];ctx.fill();
+    ctx.strokeStyle=d[2]?v("--surface"):v("--muted");ctx.lineWidth=0.7;ctx.stroke();
+  });
+}
+function mapPanel(){
+  var list=[],owner=null;
+  topics.forEach(function(t){cards(t).forEach(function(c){if(c.map){list.push(c);owner=owner||t;}});});
+  if(!list.length)return null;
+  var lv={},counts=[0,0,0,0,0];
+  list.forEach(function(c){var l=level(c);lv[c.map]=l;counts[l]++;});
+  var green=counts[3]+counts[4];
+  var panel=h("div",{class:"panel"},h("div",{class:"phead"},h("h2",{text:owner.name}),h("span",{class:"note",text:green+" of "+list.length+" green"})));
+  if(geoState!=="ready"){
+    loadGeo();
+    panel.appendChild(h("div",{class:"note",text:geoState==="failed"?"The map could not load. Check your connection and reload.":"Loading map…"}));
+  }else{
+    var names=["not seen","missed","learning","strong","mastered"];
+    var canvas=h("canvas",{class:"wmap",role:"img","aria-label":"World map coloured by how well you know each country: "+[4,3,2,1,0].map(function(l){return counts[l]+" "+names[l];}).join(", ")});
+    var chips=h("div",{class:"chips"});
+    REGIONS.forEach(function(r){
+      chips.appendChild(h("button",{class:"chip",type:"button","aria-pressed":r[0]===mapRegion?"true":"false",text:r[0],onclick:function(){
+        mapRegion=r[0];
+        Array.prototype.forEach.call(chips.children,function(b){b.setAttribute("aria-pressed",b.textContent===mapRegion?"true":"false");});
+        try{drawWorld(canvas,lv);}catch(e){}
+      }}));
+    });
+    panel.appendChild(chips);
+    try{drawWorld(canvas,lv);panel.appendChild(canvas);}catch(e){panel.appendChild(h("div",{class:"note",text:"This map could not be drawn."}));}
+  }
+  var lg=h("div",{class:"legend"}),labels=["Not seen","Missed","Learning","Strong","Mastered"];
+  [4,3,2,1,0].forEach(function(l){lg.appendChild(h("span",null,h("i",{class:"dot m"+l}),labels[l]+" "+counts[l]));});
+  panel.appendChild(lg);
+  var rep=list.filter(function(c){return (c.m||0)>=2&&level(c)<=2;}).sort(function(a,b){return (b.m||0)-(a.m||0);});
+  panel.appendChild(h("h2",{text:"Consistently missed"}));
+  if(!rep.length)panel.appendChild(h("div",{class:"note",text:"None yet. Countries you miss twice or more show up here until you get them right again."}));
+  else{
+    var row=h("div",{class:"row"});
+    rep.slice(0,12).forEach(function(c){row.appendChild(h("span",{class:"pill gap",text:c.a+" ×"+c.m}));});
+    panel.appendChild(row);
+  }
+  return panel;
+}
+
 /* ---------- views ---------- */
 function renderTopics(m){
   var p=h("div",{class:"page"},h("h1",{text:"Topics"}));
@@ -361,6 +503,26 @@ function renderStudy(m,t,kind){
     });
     wrap.appendChild(h("div",{class:"stage static"},card.map?mapEl(card):h("div",{class:"prompt"+(long?" long":""),text:card.q}),opts));
     if(done){focusEl=h("button",{class:"big yes",type:"button",text:"Next",onclick:function(){grade(kind,s.chosen===card.a);}});wrap.appendChild(h("div",{class:"actions one"},focusEl));}
+  }else if(s.format==="type"){
+    var retype=s.revealed,fb=h("div",{class:"fb","aria-live":"polite"});
+    if(retype){
+      if(s.guess)fb.appendChild(h("div",{class:"miss",text:s.guess}));
+      fb.appendChild(h("div",{class:"answer",text:card.a}));
+      fb.appendChild(h("div",{class:"hint",text:s.retry?"Not quite. Copy the spelling above.":"Type it to continue"}));
+    }else if(sess[kind].last)fb.appendChild(h("div",{class:"ok",text:sess[kind].last}));
+    else fb.appendChild(h("div",{class:"hint",text:card.map?"Which country is highlighted?":"Type the answer"}));
+    wrap.appendChild(h("div",{class:"stage static typed"},
+      card.map?h("div",{class:"mapbox"},mapEl(card)):h("div",{class:"prompt"+(long?" long":""),text:card.q}),fb));
+    var inp=h("input",{type:"text","aria-label":retype?"Type the correct answer":"Your answer",placeholder:retype?"Type the correct answer":"Type your answer",
+      autocomplete:"off",autocorrect:"off",autocapitalize:"words",spellcheck:"false",enterkeyhint:retype?"next":"go",
+      oninput:function(){s.draft=inp.value;}});
+    inp.value=s.draft||"";
+    wrap.appendChild(h("form",{class:"typef",onsubmit:function(e){e.preventDefault();submitTyped(kind,inp.value);}},
+      h("div",{class:"inline"},inp,h("button",{class:"btn primary",type:"submit",text:retype?"Next":"Check"})),
+      retype?null:h("button",{class:"btn quiet",type:"button",text:"Don't know",onclick:function(){s.draft="";dontKnow(kind);}})));
+    m.appendChild(wrap);
+    try{inp.focus({preventScroll:true});}catch(e){inp.focus();}
+    return;
   }else{
     wrap.appendChild(h("button",{class:"stage",type:"button","aria-label":s.revealed?"Answer shown":"Show answer",onclick:function(){reveal(kind);}},
       card.map?mapEl(card):h("div",{class:"prompt"+(long?" long":""),text:card.q}),
@@ -427,6 +589,7 @@ function renderAnalytics(m){
 
   function tile(v,l){return h("div",{class:"tile"},h("b",{text:v}),h("span",{text:l}));}
   p.appendChild(h("div",{class:"tiles"},tile(overall+"%","mastery"),tile((K+M)?Math.round(100*K/(K+M))+"%":"–","accuracy"),tile(streak+(streak===1?" day":" days"),"streak")));
+  var mp=mapPanel();if(mp)p.appendChild(mp);
 
   var max=1,total14=0;days.forEach(function(x){var a=activity[x.key];if(a){max=Math.max(max,a.reviews);total14+=a.reviews;}});
   var grid=h("div",{class:"days"});
@@ -496,11 +659,20 @@ document.addEventListener("keydown",function(e){
     if(s.chosen==null&&n>=1&&n<=s.options.length){e.preventDefault();choose(kind,s.options[n-1]);}
     return;
   }
-  if(s.missed)return;
+  if(s.format==="type"||s.missed)return;
   if(e.key===" "&&!s.revealed){e.preventDefault();reveal(kind);}
   else if(e.key==="1"){e.preventDefault();dontKnow(kind);}
   else if(e.key==="2"){e.preventDefault();grade(kind,true);}
 });
+
+/* When the on-screen keyboard is up, size the app to the visible area so the map and answer box stay in view. */
+var vv=window.visualViewport;
+function fitViewport(){
+  var kb=window.innerHeight-vv.height>120,root=document.documentElement;
+  document.body.classList.toggle("kb",kb);
+  if(kb){root.style.setProperty("--vh",vv.height+"px");root.style.setProperty("--vt",vv.offsetTop+"px");}
+}
+if(vv){vv.addEventListener("resize",fitViewport);vv.addEventListener("scroll",fitViewport);}
 
 /* ---------- sign-in and loading ---------- */
 function seedTopics(){
