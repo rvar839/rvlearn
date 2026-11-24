@@ -383,6 +383,9 @@ function loadGeo(){
     .then(function(topo){
       var fs=window.topojson.feature(topo,topo.objects.countries).features,by={};
       fs.forEach(function(f){by[f.properties.name]=f;});
+      /* Countries that share a border, from the arcs they have in common. */
+      var nb=window.topojson.neighbors(topo.objects.countries.geometries);
+      fs.forEach(function(f,i){f.near=(nb[i]||[]).map(function(j){return fs[j];});});
       geo={features:fs,byName:by};geoState="ready";render();
     }).catch(function(){geoState="failed";render();});
 }
@@ -413,6 +416,50 @@ function contextScale(name,f,center,scale,W){
     scale=Math.max(scale*0.8,min);
   }
   return zoomCache[name]=scale;
+}
+var MAP_NAMES={"W. Sahara":"Western Sahara","N. Cyprus":"Northern Cyprus","Fr. S. Antarctic Lands":"French Southern Lands"};
+function mapLabel(name){
+  for(var i=0;i<topics.length;i++){var l=cards(topics[i]);for(var j=0;j<l.length;j++)if(l[j].map===name)return l[j].a.replace(/ \((Democratic )?Republic\)$/,function(m,d){return d?" (DRC)":"";});}
+  return MAP_NAMES[name]||name;
+}
+/* Names the countries that border the highlighted one. Each label sits on the visible part of its country;
+   a label that would cover another label or the highlighted country is moved nearby, or left out. */
+function drawNeighbours(ctx,proj,f,W,v){
+  var d3=window.d3,path=d3.geoPath(proj),items=[],placed=[];
+  (f.near||[]).forEach(function(o){
+    if(o.properties.name==="Siachen Glacier")return;
+    var c=path.centroid(o),a=path.area(o);
+    if(!isFinite(c[0])||!isFinite(c[1])||c[0]<0||c[0]>W||c[1]<0||c[1]>W)return;
+    items.push({c:c,a:a,o:o,name:mapLabel(o.properties.name)});
+  });
+  items.sort(function(x,y){return x.a-y.a;}); /* smallest first: they have the fewest places to go */
+  ctx.font="600 11px "+v("--body");ctx.textAlign="center";ctx.textBaseline="middle";ctx.lineJoin="round";
+  items.forEach(function(it){
+    var lines=[it.name],sp=-1,mid=it.name.length/2,i;
+    if(it.name.length>13){for(i=0;i<it.name.length;i++)if(it.name.charAt(i)===" "&&(sp<0||Math.abs(i-mid)<Math.abs(sp-mid)))sp=i;if(sp>0)lines=[it.name.slice(0,sp),it.name.slice(sp+1)];}
+    var w=0;lines.forEach(function(t){w=Math.max(w,ctx.measureText(t).width);});w+=6;
+    var hh=lines.length*13+2,x=Math.min(Math.max(it.c[0],w/2+2),W-w/2-2),box=null;
+    /* A spot on the neighbour itself and off the highlighted country; failing that, at most a small nudge. A label is never moved onto a third country. */
+    var OFF=[[0,0],[0,-14],[0,14],[0,-28],[0,28],[-40,0],[40,0],[0,-56],[0,56],[-80,0],[80,0],[0,-92],[0,92]];
+    [0,1].some(function(pass){
+      return OFF.some(function(d){
+        var cx=Math.min(Math.max(it.c[0]+d[0],w/2+2),W-w/2-2),y=Math.min(Math.max(it.c[1]+d[1],hh/2+2),W-hh/2-2),b=[cx-w/2,y-hh/2,cx+w/2,y+hh/2];
+        if(placed.some(function(p){return b[0]<p[2]&&b[2]>p[0]&&b[1]<p[3]&&b[3]>p[1];}))return false;
+        if(pass===0){
+          var ll=proj.invert([cx,y]);if(!ll)return false;
+          if(d3.geoContains(f,ll))return false;
+          if((d[0]||d[1])&&!d3.geoContains(it.o,ll))return false;
+        }else if(d[0]||Math.abs(d[1])>14)return false;
+        box=b;it.y=y;x=cx;return true;
+      });
+    });
+    if(!box)return;placed.push(box);
+    lines.forEach(function(t,k){
+      var y=it.y+(k-(lines.length-1)/2)*13;
+      ctx.strokeStyle=v("--land");ctx.lineWidth=3;ctx.strokeText(t,x,y);
+      ctx.fillStyle=v("--ink");ctx.fillText(t,x,y);
+    });
+  });
 }
 function drawMap(canvas,name){
   var d3=window.d3,W=340,dpr=Math.min(window.devicePixelRatio||1,3);
@@ -445,6 +492,7 @@ function drawMap(canvas,name){
     ctx.beginPath();ctx.arc(W/2,W/2,Math.min(Math.max(14,size*scale/2+8),W/2-6),0,2*Math.PI);ctx.strokeStyle=v("--accent");ctx.lineWidth=2.5;ctx.stroke();
   }
   ctx.beginPath();path({type:"Sphere"});ctx.strokeStyle=v("--mapline");ctx.lineWidth=1;ctx.stroke();
+  if(f){try{drawNeighbours(ctx,proj,f,W,v);}catch(e){}}
 }
 function mapEl(card){
   if(geoState!=="ready"){loadGeo();return h("div",{class:"hint",text:geoState==="failed"?"The map could not load. Check your connection and reload.":"Loading map…"});}
